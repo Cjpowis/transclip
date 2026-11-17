@@ -1,0 +1,51 @@
+# Publishes a release when a version tag (v0.1.0 and so on) is pushed: builds
+# the Apple Silicon binary on GitHub's Mac runner and attaches it, with its
+# SHA-256, to a GitHub release. The Homebrew formula in Cjpowis/homebrew-tap
+# downloads from there.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release and upload its files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 2026-10-16
+        with:
+          toolchain: 1.99.1
+      - name: Build
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          cargo build --locked --release
+          ./target/release/transclip --version
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"$version\"" Cargo.toml
+          mkdir -p dist
+          tar -czf "dist/transclip-$version-aarch64-apple-darwin.tar.gz" -C target/release transclip
+          (cd dist && shasum -a 256 ./*.tar.gz | sed 's# \./# #' > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Transclip $GITHUB_REF_NAME" \
+            --notes "Install with: brew install cjpowis/tap/transclip"

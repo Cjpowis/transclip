@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transclip: YouTube transcripts on your clipboard</title>
+<meta name="description" content="Paste a YouTube link and Transclip copies the whole transcript to your clipboard. Free and open source, for Macs with Apple Silicon.">
+<meta name="color-scheme" content="dark">
+<style>
+  :root {
+    --velvet: #241b22;    /* page */
+    --curtain: #30242f;   /* raised panels */
+    --screen: #17111a;    /* inside the video frame */
+    --lamp: #f2e8dc;      /* text */
+    --dust: #b3a39a;      /* quieter text */
+    --gold: #f2c14e;      /* subtitle yellow, the one accent */
+    --hair: rgba(242, 232, 220, 0.12);
+    --round: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--velvet);
+    color: var(--lamp);
+    font: 400 1.125rem/1.6 var(--round);
+  }
+  a { color: var(--gold); text-underline-offset: 0.2em; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 6px; }
+  code { font-family: var(--mono); font-size: 0.92em; }
+  p code, li code { background: var(--curtain); padding: 0.1em 0.4em; border-radius: 6px; }
+
+  .wrap { width: min(1120px, 100% - 3rem); margin-inline: auto; }
+  .measure { max-width: 62ch; }
+
+  /* Header */
+  .top { display: flex; align-items: center; justify-content: space-between; padding-block: 1.5rem; }
+  .mark { display: inline-flex; flex-direction: column; gap: 0.3rem; font-weight: 800; font-size: 1.35rem; letter-spacing: -0.02em; color: var(--lamp); text-decoration: none; }
+  .mark::after { content: ""; width: 1.6rem; height: 0.32rem; border-radius: 99px; background: var(--gold); }
+  .top a.gh { color: var(--dust); text-decoration: none; font-weight: 600; }
+  .top a.gh:hover { color: var(--lamp); }
+
+  /* Hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; padding-block: clamp(2rem, 6vw, 5rem) clamp(3rem, 7vw, 6rem); }
+  h1 { font-size: clamp(2.4rem, 5.2vw, 4.1rem); line-height: 1.05; letter-spacing: -0.03em; font-weight: 800; margin: 0 0 1.25rem; text-wrap: balance; }
+  .lede { font-size: 1.25rem; color: var(--dust); margin: 0 0 2rem; max-width: 34ch; }
+  .install { display: flex; align-items: center; gap: 0.75rem; background: var(--curtain); border: 1px solid var(--hair); border-radius: 14px; padding: 0.6rem 0.6rem 0.6rem 1.1rem; max-width: 30rem; }
+  .install code { flex: 1; font-size: 0.98rem; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .install code::before { content: "$ "; color: var(--dust); }
+  .copy { font: 700 0.95rem var(--round); color: var(--velvet); background: var(--gold); border: 0; border-radius: 10px; padding: 0.55rem 1rem; cursor: pointer; min-width: 5.5rem; }
+  .copy:hover { filter: brightness(1.06); }
+  .fine { color: var(--dust); font-size: 0.95rem; margin: 1rem 0 0; }
+
+  /* The stage: captions playing, words collecting on the clipboard */
+  .stage { margin: 0; display: grid; gap: 1rem; }
+  .frame { position: relative; aspect-ratio: 16 / 9; border-radius: 18px; overflow: hidden;
+    background: radial-gradient(120% 90% at 30% 20%, #3b2a37 0%, var(--screen) 60%); border: 1px solid var(--hair); }
+  .wave { position: absolute; inset: 0 0 34% 0; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .wave span { width: 5px; height: var(--h); border-radius: 3px; background: rgba(242, 232, 220, 0.22); transform-origin: center; }
+  .playing .wave span { animation: talk 0.9s ease-in-out infinite alternate; animation-delay: var(--d); }
+  @keyframes talk { from { transform: scaleY(0.35); } to { transform: scaleY(1); } }
+  .caption { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); width: max-content; max-width: 88%;
+    margin: 0; padding: 0.35rem 0.75rem; border-radius: 8px; background: rgba(10, 6, 10, 0.72);
+    color: var(--gold); font-weight: 700; font-size: clamp(0.95rem, 1.9vw, 1.3rem); line-height: 1.35; text-align: center; min-height: 1.35em; }
+  .caption:empty { visibility: hidden; }
+  .clip { background: var(--curtain); border: 1px solid var(--hair); border-radius: 18px; padding: 1rem 1.25rem 1.25rem; }
+  .clip-head { display: flex; justify-content: space-between; align-items: center; color: var(--dust); font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .chip { color: var(--velvet); background: var(--gold); border-radius: 99px; padding: 0.15rem 0.7rem; font-weight: 700; opacity: 0; transform: translateY(4px); transition: opacity 0.4s, transform 0.4s; }
+  .chip.on { opacity: 1; transform: none; }
+  .clip-text { margin: 0; min-height: 4.8em; font-size: 1rem; color: var(--lamp); }
+  .replay { justify-self: start; font: 600 0.9rem var(--round); color: var(--dust); background: none; border: 0; padding: 0.25rem 0; cursor: pointer; text-decoration: underline; text-underline-offset: 0.2em; }
+  .replay:hover { color: var(--lamp); }
+
+  /* Sections */
+  section.block { padding-block: clamp(3rem, 7vw, 5.5rem); border-top: 1px solid var(--hair); }
+  h2 { font-size: clamp(1.7rem, 3vw, 2.3rem); line-height: 1.15; letter-spacing: -0.02em; font-weight: 800; margin: 0 0 1rem; }
+  h3 { font-size: 1.2rem; margin: 0 0 0.35rem; font-weight: 750; }
+  .block p { margin: 0 0 1rem; }
+  .quiet { color: var(--dust); }
+
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 4rem); align-items: start; }
+
+  ol.steps { list-style: none; counter-reset: s; margin: 1.5rem 0 0; padding: 0; display: grid; gap: 1.5rem; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 2.6rem 1fr; gap: 0.25rem 1rem; }
+  ol.steps li::before { content: counter(s); grid-row: span 2; width: 2.6rem; height: 2.6rem; border-radius: 50%; display: grid; place-items: center;
+    font-weight: 800; color: var(--velvet); background: var(--gold); }
+  ol.steps p { margin: 0; color: var(--dust); }
+
+  pre.session { margin: 0; background: var(--screen); border: 1px solid var(--hair); border-radius: 18px; padding: 1.25rem 1.4rem; overflow-x: auto;
+    font: 0.92rem/1.75 var(--mono); color: var(--lamp); }
+  .session .ok { color: #8fd3a8; }
+  .session .dim { color: var(--dust); }
+  .session .you { color: var(--gold); }
+
+  ol.cascade { list-style: none; margin: 1.5rem 0; padding: 0; display: grid; gap: 0.9rem; }
+  ol.cascade li { position: relative; padding: 1rem 1.25rem 1rem 1.4rem; border-radius: 14px; background: var(--curtain); }
+  ol.cascade li::before { content: ""; position: absolute; left: 0; top: 0.9rem; bottom: 0.9rem; width: 4px; border-radius: 4px; background: var(--gold); }
+  ol.cascade li:nth-child(2) { margin-left: 1.25rem; }
+  ol.cascade li:nth-child(3) { margin-left: 2.5rem; }
+  ol.cascade b { display: block; font-size: 1.1rem; }
+  ol.cascade span { color: var(--dust); }
+
+  .bars { display: grid; gap: 1.1rem; margin: 1.75rem 0; max-width: 34rem; }
+  .bar { display: grid; gap: 0.35rem; }
+  .bar-label { display: flex; justify-content: space-between; font-weight: 650; }
+  .bar-label em { font-style: normal; color: var(--dust); font-weight: 600; }
+  .bar-track { height: 12px; border-radius: 99px; background: var(--curtain); overflow: hidden; }
+  .bar-fill { height: 100%; width: var(--w); border-radius: 99px; background: var(--gold); }
+  .bar.them .bar-fill { background: var(--dust); }
+
+  ul.plain { margin: 1rem 0 0; padding-left: 1.2rem; }
+  ul.plain li { margin-bottom: 0.6rem; }
+  ul.plain li::marker { color: var(--gold); }
+
+  footer { border-top: 1px solid var(--hair); padding-block: 2.5rem 3.5rem; color: var(--dust); font-size: 0.95rem; }
+  footer p { margin: 0 0 0.6rem; max-width: 70ch; }
+
+  @media (max-width: 860px) {
+    .hero, .split { grid-template-columns: minmax(0, 1fr); }
+    .lede { max-width: none; }
+    .install code { white-space: normal; overflow-wrap: anywhere; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .playing .wave span { animation: none; }
+    .chip { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="mark" href="#" aria-label="Transclip home">transclip</a>
+  <a class="gh" href="https://github.com/Cjpowis/transclip">GitHub</a>
+</header>
+
+<main>
+  <section class="wrap hero">
+    <div>
+      <h1>Every word of a YouTube video, on your clipboard.</h1>
+      <p class="lede">Paste a link. Transclip fetches the captions, or listens to the video itself, then copies the whole transcript, ready for ChatGPT or your notes.</p>
+      <div class="install">
+        <code id="cmd">brew install cjpowis/tap/transclip</code>
+        <button class="copy" type="button" data-copy="cmd">Copy</button>
+      </div>
+      <p class="fine">Free and open source. For Macs with Apple Silicon. Early preview, version 0.1.</p>
+    </div>
+
+    <figure class="stage" aria-label="Illustration: a video's captions being collected into a transcript on the clipboard">
+      <div class="frame" id="frame">
+        <div class="wave" aria-hidden="true"></div>
+        <p class="caption" id="caption" aria-hidden="true"></p>
+      </div>
+      <div class="clip">
+        <div class="clip-head"><span>Clipboard</span><span class="chip" id="chip">Copied 2,277 words</span></div>
+        <p class="clip-text" id="cliptext">So the first thing I tried was simply listening more carefully, and that's when the whole idea finally clicked.</p>
+      </div>
+      <button class="replay" type="button" id="replay">Play it again</button>
+    </figure>
+  </section>
+
+  <section class="wrap block">
+    <div class="split">
+      <div class="measure">
+        <h2>Three steps, and you're done</h2>
+        <ol class="steps">
+          <li><h3>Install it</h3><p>Open Terminal (press ⌘ Space and type Terminal). If you don't have Homebrew yet, get it from <a href="https://brew.sh">brew.sh</a>, then paste the install line above. It brings yt-dlp and ffmpeg with it.</p></li>
+          <li><h3>Type transclip</h3><p>Press Return and it asks for a link.</p></li>
+          <li><h3>Paste a YouTube link</h3><p>The transcript is copied straight away and shown on screen. Press <code>c</code> to copy again, <code>q</code> to quit.</p></li>
+        </ol>
+      </div>
+      <pre class="session" aria-label="What a run looks like in Terminal"><span class="dim">~</span> <span class="you">transclip</span>
+Paste the video link: <span class="you">https://youtu.be/…</span>
+<span class="ok">✓</span> How bridges hold themselves up
+<span class="ok">✓</span> Using human-written captions (en)
+<span class="ok">✓</span> Copied to clipboard: 2,277 words</pre>
+    </div>
+  </section>
+
+  <section class="wrap block">
+    <div class="measure">
+      <h2>Where the words come from</h2>
+      <p class="quiet">Transclip uses the first of these that works.</p>
+      <ol class="cascade">
+        <li><b>The video's own captions</b><span>Written by a person. Instant, and usually the most accurate.</span></li>
+        <li><b>YouTube's automatic transcript</b><span>Used when it has punctuation. Also instant.</span></li>
+        <li><b>Listening on your Mac</b><span>NVIDIA's speech model, running on your own computer. About 30 seconds for a 15-minute video, after a one-off 650 MB download.</span></li>
+      </ol>
+      <p>Need names and numbers exactly right? <code>transclip -t</code> goes straight to listening on your Mac.</p>
+    </div>
+  </section>
+
+  <section class="wrap block">
+    <div class="measure">
+      <h2>Accurate, and quick</h2>
+      <p class="quiet">Words wrong in every hundred, on a talk with human-written captions to check against:</p>
+      <div class="bars">
+        <div class="bar"><div class="bar-label">Transclip, listening on your Mac <em>3.3</em></div><div class="bar-track"><div class="bar-fill" style="--w: 55%"></div></div></div>
+        <div class="bar them"><div class="bar-label">YouTube's automatic transcript <em>5.7</em></div><div class="bar-track"><div class="bar-fill" style="--w: 95%"></div></div></div>
+      </div>
+      <p>A 14-minute talk takes about 31 seconds on an M2 Mac mini.</p>
+    </div>
+  </section>
+
+  <section class="wrap block">
+    <div class="split">
+      <div class="measure">
+        <h2>It reaches your phone too</h2>
+        <p>Use your Mac over SSH from a phone app such as Termius, and the transcript lands on your phone's clipboard, not the Mac's. Ready to paste wherever you are.</p>
+      </div>
+      <div class="measure">
+        <h2>Nothing kept, nothing sent</h2>
+        <ul class="plain">
+          <li>No account, no cloud, no tracking.</li>
+          <li>Downloads go in a temporary folder that's deleted afterwards, even if you stop it halfway.</li>
+          <li>The only thing kept is the speech model, and <code>transclip --delete-model</code> removes it.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap block">
+    <div class="measure">
+      <h2>Keep yt-dlp fresh</h2>
+      <p>YouTube changes often, and yt-dlp, which does the downloading, keeps up within days. If a video won't download, Transclip tells you how old your yt-dlp is and the exact command to update it.</p>
+      <p>For the latest fixes, switch to yt-dlp's newest code with <code>brew reinstall --HEAD yt-dlp</code>.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>Made by <a href="https://github.com/Cjpowis">Cjpowis</a>. Free under the MIT licence. Please respect creators' rights when you use transcripts.</p>
+  <p>Built on <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, <a href="https://ffmpeg.org">FFmpeg</a>, <a href="https://github.com/altunenes/parakeet-rs">parakeet-rs</a> and NVIDIA's <a href="https://huggingface.co/nvidia/parakeet-unified-en-0.6b">parakeet-unified-en-0.6b</a>, licensed by NVIDIA Corporation under the <a href="https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/">NVIDIA Open Model License</a>. Not affiliated with YouTube.</p>
+</footer>
+
+<script>
+  // Copy buttons
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const text = document.getElementById(btn.dataset.copy).textContent.trim();
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "Copied";
+      } catch {
+        btn.textContent = "Select it";
+      }
+      setTimeout(() => (btn.textContent = "Copy"), 1800);
+    });
+  });
+
+  // The stage: captions appear word by word and collect on the clipboard.
+  const lines = [
+    "So the first thing I tried",
+    "was simply listening more carefully,",
+    "and that's when the whole idea finally clicked.",
+  ];
+  const frame = document.getElementById("frame");
+  const caption = document.getElementById("caption");
+  const clip = document.getElementById("cliptext");
+  const chip = document.getElementById("chip");
+  const wave = frame.querySelector(".wave");
+  for (let i = 0; i < 28; i++) {
+    const s = document.createElement("span");
+    s.style.setProperty("--h", (18 + Math.round(60 * Math.abs(Math.sin(i * 1.7)))) + "px");
+    s.style.setProperty("--d", (i % 7) * -0.13 + "s");
+    wave.appendChild(s);
+  }
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let timers = [];
+  function play() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    chip.classList.remove("on");
+    if (still) {
+      caption.textContent = lines[lines.length - 1];
+      clip.textContent = lines.join(" ");
+      chip.classList.add("on");
+      return;
+    }
+    caption.textContent = "";
+    clip.textContent = "";
+    frame.classList.add("playing");
+    let t = 400;
+    lines.forEach((line) => {
+      const words = line.split(" ");
+      timers.push(setTimeout(() => (caption.textContent = ""), t));
+      words.forEach((w, i) => {
+        t += 230;
+        timers.push(setTimeout(() => {
+          caption.textContent += (i ? " " : "") + w;
+          clip.textContent += (clip.textContent ? " " : "") + w;
+        }, t));
+      });
+      t += 700;
+    });
+    timers.push(setTimeout(() => {
+      frame.classList.remove("playing");
+      chip.classList.add("on");
+    }, t));
+  }
+  document.getElementById("replay").addEventListener("click", play);
+  play();
+</script>
+</body>
+</html>
