@@ -9,8 +9,16 @@ Free and open source.
 ## Install
 
 1. Open **Terminal**: press ⌘ and Space, type `Terminal`, press Return.
-2. If you don't have Homebrew yet, install it with the one line on
-   [brew.sh](https://brew.sh).
+2. If you don't have Homebrew yet, paste this and press Return (it's the
+   one line from [brew.sh](https://brew.sh)):
+
+   ```
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+   It asks for your Mac password; nothing shows as you type, which is
+   normal. When it finishes it prints **Next steps** with a couple of lines
+   to paste. Paste them, or Terminal won't find `brew`.
 3. Paste this and press Return:
 
    ```
