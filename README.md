@@ -48,6 +48,10 @@ Transclip takes the first of these that works:
 Want the most accurate text for names and numbers? Use `transclip -t` to go
 straight to step 3.
 
+If YouTube says captions were asked for too often, Transclip goes straight to
+step 3 for the next 30 minutes rather than asking again. (Videos in other
+languages still try captions, since step 3 is English only.)
+
 ## Over SSH, to your phone
 
 Run Transclip over SSH from a phone app such as Termius and the transcript
@@ -82,8 +86,9 @@ and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`.
   single video.
 - For videos in other languages, Transclip uses YouTube's own transcript;
   the speech model on your Mac only understands English.
-- Nothing is saved except the speech model. Downloads go in a temporary
-  folder that's deleted afterwards, even if you press Ctrl-C.
+- Nothing is saved except the speech model, and a tiny note of when to try
+  captions again if YouTube says they were asked for too often. Downloads go
+  in a temporary folder that's deleted afterwards, even if you press Ctrl-C.
 - No account, no cloud, no tracking. Everything runs on your Mac.
 - Please respect creators' rights when you use transcripts.
 
@@ -93,6 +98,15 @@ and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`.
 transclip --delete-model
 brew uninstall transclip
 ```
+
+## Questions or problems
+
+Ask a question in
+[Discussions](https://github.com/Cjpowis/transclip/discussions), or report a
+problem in [Issues](https://github.com/Cjpowis/transclip/issues). For a
+problem, include what you typed and the message Transclip showed.
+
+What's changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
 
