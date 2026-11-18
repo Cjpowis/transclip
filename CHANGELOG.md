@@ -2,6 +2,10 @@
 
 ## 0.1.1 (18 November 2026)
 
+- New `transclip --report` copies a short report to paste into a GitHub
+  issue: your Transclip, macOS, yt-dlp and ffmpeg versions, whether the
+  speech model is downloaded, and the last error. Links, video IDs and your
+  folder names are left out. When something fails, Transclip mentions it.
 - If YouTube says captions were asked for too often (HTTP 429), Transclip
   transcribes on your Mac for the next 30 minutes instead of asking again,
   which would keep the limit going. Videos in other languages still try

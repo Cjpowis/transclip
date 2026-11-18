@@ -67,6 +67,7 @@ lands on your **phone's** clipboard, not the Mac's.
 | `--no-copy` | Don't copy to the clipboard |
 | `--text-only` | Leave the title and link off the copied text |
 | `--delete-model` | Delete the downloaded speech model |
+| `--report` | Copy a short report to paste into a GitHub issue |
 
 ## Keep yt-dlp up to date
 
@@ -86,9 +87,10 @@ and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`.
   single video.
 - For videos in other languages, Transclip uses YouTube's own transcript;
   the speech model on your Mac only understands English.
-- Nothing is saved except the speech model, and a tiny note of when to try
-  captions again if YouTube says they were asked for too often. Downloads go
-  in a temporary folder that's deleted afterwards, even if you press Ctrl-C.
+- Nothing is saved except the speech model, the last error message (for
+  `--report`), and a tiny note of when to try captions again if YouTube says
+  they were asked for too often. Downloads go in a temporary folder that's
+  deleted afterwards, even if you press Ctrl-C.
 - No account, no cloud, no tracking. Everything runs on your Mac.
 - Please respect creators' rights when you use transcripts.
 
@@ -103,8 +105,11 @@ brew uninstall transclip
 
 Ask a question in
 [Discussions](https://github.com/Cjpowis/transclip/discussions), or report a
-problem in [Issues](https://github.com/Cjpowis/transclip/issues). For a
-problem, include what you typed and the message Transclip showed.
+problem in [Issues](https://github.com/Cjpowis/transclip/issues).
+
+For a problem, run `transclip --report` and paste what it copies into the
+issue. It lists your Transclip, macOS, yt-dlp and ffmpeg versions and the
+last error, and leaves out links, video IDs and your folder names.
 
 What's changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
