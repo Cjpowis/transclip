@@ -1,7 +1,9 @@
 mod captions;
 mod cleanup;
 mod clipboard;
+mod cooldown;
 mod progress;
+mod report;
 mod text;
 mod transcribe;
 mod viewer;
@@ -23,7 +25,8 @@ use crate::text::Timed;
 /// automatic transcript (if it's punctuated), then transcribing the audio
 /// on this Mac with NVIDIA Parakeet. The transcript is copied to your
 /// clipboard (over SSH too, through your terminal app) and shown in a
-/// scrollable viewer. Nothing is saved to disk.
+/// scrollable viewer. Only the speech model is kept on disk, plus a note of
+/// when to try captions again if YouTube says they were asked for too often.
 #[derive(Parser, Debug)]
 #[command(name = "transclip", version, about, long_about)]
 struct Args {
@@ -55,6 +58,11 @@ struct Args {
     /// downloads again the next time it's needed.
     #[arg(long)]
     delete_model: bool,
+
+    /// Copy a short report for a GitHub issue: versions, setup and the last
+    /// problem (no links, video IDs or your folder names)
+    #[arg(long)]
+    report: bool,
 }
 
 pub enum Source {
@@ -104,7 +112,13 @@ impl Transcript {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("{RED}✗{RESET} {e:#}");
+        let msg = format!("{e:#}");
+        eprintln!("{RED}✗{RESET} {msg}");
+        report::record_error(&msg);
+        eprintln!(
+            "{MUTED}  If this looks like a bug, run transclip --report and paste it at {}{RESET}",
+            report::NEW_ISSUE
+        );
         std::process::exit(1);
     }
 }
@@ -122,6 +136,24 @@ fn run() -> Result<()> {
                 "{GREEN}✓{RESET} Deleted the speech model ({} MB freed)",
                 text::thousands((freed / 1_000_000) as usize)
             );
+        }
+        return Ok(());
+    }
+
+    if args.report {
+        let text = report::build();
+        println!("{text}");
+        if !args.no_copy {
+            match clipboard::copy(&text) {
+                Ok(()) => eprintln!(
+                    "{GREEN}✓{RESET} Copied. Paste it into a new issue at {}",
+                    report::NEW_ISSUE
+                ),
+                Err(e) => eprintln!(
+                    "{AMBER}!{RESET} Couldn't copy it ({e:#}). Copy the text above into a new issue at {}",
+                    report::NEW_ISSUE
+                ),
+            }
         }
         return Ok(());
     }
@@ -166,9 +198,25 @@ fn run() -> Result<()> {
     cleanup::register(tmp.path());
 
     let mut found: Option<(Source, Vec<Timed>)> = None;
+    // After YouTube refuses captions for coming too often (HTTP 429), they're
+    // left alone for a while and the audio is transcribed here instead. Not
+    // for other languages: this Mac's model can't help, so captions are
+    // still worth a try.
+    let paused = if args.transcribe || other_lang.is_some() {
+        None
+    } else {
+        cooldown::remaining()
+    };
+    let skip_captions = args.transcribe || paused.is_some();
+    let mut refused = false;
     if args.transcribe {
         eprintln!("{MUTED}•{RESET} Skipping YouTube's captions and transcript, as asked");
-    } else {
+    } else if let Some(mins) = paused {
+        eprintln!(
+            "{MUTED}•{RESET} YouTube recently said captions were asked for too often, so transcribing on this Mac (captions again in {mins} min)"
+        );
+    }
+    if !skip_captions {
         match ytdlp::pick_caption_lang(&info, &args.lang) {
             Some(lang) => {
                 let sp = progress::spinner(format!("Fetching captions ({lang})"));
@@ -180,6 +228,11 @@ fn run() -> Result<()> {
                         found = Some((Source::Captions(lang), items));
                     }
                     Ok(_) => progress::warn(&sp, "The captions were empty"),
+                    Err(e) if ytdlp::too_many_requests(&e) => {
+                        refused = true;
+                        cooldown::start();
+                        progress::warn(&sp, refused_message(other_lang.is_some()));
+                    }
                     Err(e) => progress::warn(&sp, format!("Couldn't use the captions ({e:#})")),
                 }
             }
@@ -187,7 +240,9 @@ fn run() -> Result<()> {
         }
     }
 
-    if found.is_none() && !args.transcribe {
+    // After a refusal the automatic transcript would be refused too, so only
+    // ask for it then if it's the only hope (another language).
+    if found.is_none() && !skip_captions && (!refused || other_lang.is_some()) {
         match ytdlp::pick_auto_caption_lang(&info, &args.lang) {
             Some(lang) => {
                 let sp = progress::spinner("Fetching YouTube's automatic transcript");
@@ -215,6 +270,11 @@ fn run() -> Result<()> {
                         &sp,
                         "YouTube's automatic transcript was empty, transcribing on this Mac instead",
                     ),
+                    Err(e) if ytdlp::too_many_requests(&e) => {
+                        refused = true;
+                        cooldown::start();
+                        progress::warn(&sp, refused_message(other_lang.is_some()));
+                    }
                     Err(e) => progress::warn(
                         &sp,
                         format!(
@@ -235,6 +295,8 @@ fn run() -> Result<()> {
             if let Some(lang) = &other_lang {
                 let hint = if args.transcribe {
                     "Leave off -t to use YouTube's own transcript."
+                } else if refused {
+                    "YouTube is refusing captions for now because they were asked for too often. Try again in about 30 minutes."
                 } else {
                     "YouTube has no usable transcript for it either."
                 };
@@ -302,6 +364,18 @@ fn ask_for_link() -> Result<String> {
         bail!("No link given.");
     }
     Ok(link)
+}
+
+/// What to say when YouTube refuses captions for coming too often.
+fn refused_message(other_lang: bool) -> String {
+    if other_lang {
+        "YouTube says captions were asked for too often (HTTP 429)".to_string()
+    } else {
+        format!(
+            "YouTube says captions were asked for too often (HTTP 429), so transcribing on this Mac and leaving captions alone for {} minutes",
+            cooldown::PAUSE_SECS / 60
+        )
+    }
 }
 
 /// No usable captions: download the audio and transcribe it locally.

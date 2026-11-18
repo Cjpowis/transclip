@@ -128,6 +128,15 @@ fn folder_size(dir: &Path) -> u64 {
         .sum()
 }
 
+/// The downloaded model's size in bytes, or None if any file is missing.
+pub fn model_size() -> Option<u64> {
+    let dir = model_dir().ok()?;
+    FILES
+        .iter()
+        .all(|(_, local, _)| dir.join(local).is_file())
+        .then(|| folder_size(&dir))
+}
+
 /// Download any missing model files (one time, about 650 MB).
 pub fn ensure_model() -> Result<PathBuf> {
     let dir = model_dir()?;

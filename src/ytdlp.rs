@@ -85,7 +85,9 @@ fn update_hint(stderr: &str) -> Option<String> {
 /// Errors about the video itself, or about the connection, which a newer
 /// yt-dlp wouldn't fix.
 fn not_a_yt_dlp_problem(stderr: &str) -> bool {
-    const SIGNS: [&str; 18] = [
+    const SIGNS: [&str; 20] = [
+        "http error 429",
+        "too many requests",
         "private video",
         "video unavailable",
         "this video is unavailable",
@@ -131,6 +133,23 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+/// The installed yt-dlp's version (None if it isn't found) and the command
+/// that updates it, for `--report`.
+pub fn installed() -> (Option<String>, String) {
+    let real = installed_path();
+    let version = Command::new("yt-dlp")
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|v| !v.is_empty());
+    (
+        version,
+        update_command_for(&real, interpreter(&real).as_deref()),
+    )
 }
 
 /// Where the yt-dlp on the PATH really lives, with symlinks resolved.
@@ -185,6 +204,12 @@ fn last_lines(b: &[u8]) -> String {
     let lines: Vec<&str> = s.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let tail = &lines[lines.len().saturating_sub(2)..];
     tail.join(" / ").replace("ERROR: ", "")
+}
+
+/// YouTube refused the request for coming too often (HTTP 429).
+pub fn too_many_requests(e: &anyhow::Error) -> bool {
+    let s = format!("{e:#}").to_lowercase();
+    s.contains("http error 429") || s.contains("too many requests")
 }
 
 pub fn probe(url: &str) -> Result<VideoInfo> {
@@ -471,9 +496,22 @@ mod tests {
         assert!(not_a_yt_dlp_problem(
             "ERROR: Unable to download webpage: <urlopen error [Errno 8] nodename nor servname provided>"
         ));
+        assert!(not_a_yt_dlp_problem(
+            "ERROR: Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests"
+        ));
         assert!(!not_a_yt_dlp_problem(
             "ERROR: unable to download video data: HTTP Error 403: Forbidden"
         ));
+    }
+
+    #[test]
+    fn spots_youtube_refusing_too_many_requests() {
+        assert!(too_many_requests(&anyhow!(
+            "Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests"
+        )));
+        assert!(!too_many_requests(&anyhow!(
+            "unable to download video data: HTTP Error 403: Forbidden"
+        )));
     }
 
     #[test]

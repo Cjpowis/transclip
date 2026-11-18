@@ -1,6 +1,6 @@
 [package]
 name = "transclip"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "YouTube transcripts straight to your clipboard: human captions, then YouTube's automatic transcript, then NVIDIA Parakeet on your Mac"
 license = "MIT"
