@@ -3,7 +3,7 @@
 Get the full transcript of a YouTube video onto your clipboard, ready to
 paste into ChatGPT, your notes, or anywhere else.
 
-**Early preview, version 0.1.** For Macs with Apple Silicon (M1 or later).
+**Early preview, version 0.2.** For Macs with Apple Silicon (M1 or later).
 Free and open source.
 
 ## Install
@@ -31,8 +31,12 @@ Free and open source.
 
 Type `transclip` and press Return, then paste a YouTube link and press Return.
 
-The transcript is copied to your clipboard straight away and shown on screen.
-Press `c` to copy it again, `q` to quit.
+You watch it work on one screen: it looks the video up, tries each place the
+words can come from, and shows which one it used. The transcript is copied to
+your clipboard straight away and shown below. Press `c` to copy it again, `s`
+to save it as a text file in Downloads, `q` to quit.
+
+If the video has chapters, they become headings in the transcript.
 
 ## Where the text comes from
 
@@ -40,7 +44,9 @@ Transclip takes the first of these that works:
 
 1. **The video's human-written captions.** Instant, and usually the most
    accurate.
-2. **YouTube's automatic transcript**, if it has punctuation.
+2. **YouTube's automatic transcript** in the video's own language, if it has
+   punctuation. On videos YouTube has dubbed into other languages, it takes
+   the speaker's own transcript, not a dub's.
 3. **Transcribing the audio on your Mac** with NVIDIA's speech model
    (English only). The first time, it downloads the model once (about
    650 MB). After that, a 15-minute video takes about 30 seconds.
@@ -63,9 +69,11 @@ lands on your **phone's** clipboard, not the Mac's.
 | --- | --- |
 | `-t`, `--transcribe` | Skip YouTube's text and always transcribe on your Mac |
 | `-p`, `--print` | Print the transcript instead of showing it on screen |
-| `--lang CODE` | Caption language to look for first (default `en`) |
+| `--lang CODE` | Caption language to look for first, like `fr` (default: your Mac's language) |
 | `--no-copy` | Don't copy to the clipboard |
 | `--text-only` | Leave the title and link off the copied text |
+| `--timestamps` | Put the time each paragraph starts, like `[12:40]`, in front of it |
+| `--save [FOLDER]` | Also save it as a text file, in Downloads or the folder given (made if it's missing) |
 | `--delete-model` | Delete the downloaded speech model |
 | `--report` | Copy a short report to paste into a GitHub issue |
 
@@ -88,9 +96,10 @@ and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`.
 - For videos in other languages, Transclip uses YouTube's own transcript;
   the speech model on your Mac only understands English.
 - Nothing is saved except the speech model, the last error message (for
-  `--report`), and a tiny note of when to try captions again if YouTube says
-  they were asked for too often. Downloads go in a temporary folder that's
-  deleted afterwards, even if you press Ctrl-C.
+  `--report`), a tiny note of when to try captions again if YouTube says
+  they were asked for too often, and any transcript you choose to save.
+  Downloads go in a temporary folder that's deleted afterwards, even if you
+  press `q` or Ctrl-C partway through.
 - No account, no cloud, no tracking. Everything runs on your Mac.
 - Please respect creators' rights when you use transcripts.
 

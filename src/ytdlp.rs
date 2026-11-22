@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 
-use crate::progress;
+use crate::show::{Show, Stage};
 
 #[derive(Deserialize, Debug)]
 pub struct VideoInfo {
@@ -28,6 +28,55 @@ pub struct VideoInfo {
     pub kind: Option<String>,
     /// "is_live" and "is_upcoming" are streams with nothing to transcribe yet.
     pub live_status: Option<String>,
+    pub chapters: Option<Vec<ChapterInfo>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ChapterInfo {
+    pub start_time: Option<f64>,
+    pub title: Option<String>,
+}
+
+/// What a link points at, where that can be told from the link alone
+/// (asking YouTube about a playlist takes several seconds).
+#[derive(Debug, PartialEq)]
+pub enum Link {
+    /// A YouTube Mix: an endless playlist that starts from one video. The
+    /// Mix's ID is "RD" and that video's ID, which this holds.
+    Mix(String),
+    /// A playlist with no one video to pick.
+    Playlist,
+    /// Anything else, a video or not, for yt-dlp to look up.
+    Other,
+}
+
+pub fn read_link(link: &str) -> Link {
+    let link = link.split('#').next().unwrap_or("");
+    let (place, query) = link.split_once('?').unwrap_or((link, ""));
+    let place = place.trim_end_matches('/');
+    let on_youtube = place.contains("youtube.com/") || place.contains("youtube-nocookie.com/");
+    // A link with a video in it (watch?v=…&list=…) is that video; yt-dlp is
+    // told to ignore the list.
+    if !on_youtube || !place.ends_with("/playlist") {
+        return Link::Other;
+    }
+    let list = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("list="))
+        .unwrap_or("");
+    let video = list
+        .strip_prefix("RDAMVM")
+        .or_else(|| list.strip_prefix("RD"))
+        .filter(|id| {
+            id.len() == 11
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        });
+    match video {
+        Some(id) => Link::Mix(id.to_string()),
+        None => Link::Playlist,
+    }
 }
 
 fn yt_dlp() -> Command {
@@ -212,7 +261,27 @@ pub fn too_many_requests(e: &anyhow::Error) -> bool {
     s.contains("http error 429") || s.contains("too many requests")
 }
 
-pub fn probe(url: &str) -> Result<VideoInfo> {
+/// Where a download starts. `Lookup` is the answer `probe` got, saved to a
+/// file: yt-dlp downloads straight away instead of asking YouTube about the
+/// whole video again. `Link` makes a fresh lookup.
+#[derive(Clone, Copy)]
+pub enum Origin<'a> {
+    Link(&'a str),
+    Lookup(&'a Path),
+}
+
+impl Origin<'_> {
+    fn add_to(self, cmd: &mut Command) {
+        match self {
+            Origin::Link(url) => cmd.args(["--", url]),
+            Origin::Lookup(json) => cmd.arg("--load-info-json").arg(json),
+        };
+    }
+}
+
+/// Look the video up once. Returns what we need from the answer, and the
+/// answer itself so the downloads can reuse it (see `Origin::Lookup`).
+pub fn probe(url: &str) -> Result<(VideoInfo, Vec<u8>)> {
     let out = yt_dlp()
         // --flat-playlist: for a playlist or channel link, just list it
         // (so it can be refused quickly) instead of looking up every video.
@@ -228,11 +297,13 @@ pub fn probe(url: &str) -> Result<VideoInfo> {
             &String::from_utf8_lossy(&out.stderr),
         ));
     }
-    serde_json::from_slice(&out.stdout).context("yt-dlp gave unexpected output")
+    let info = serde_json::from_slice(&out.stdout).context("yt-dlp gave unexpected output")?;
+    Ok((info, out.stdout))
 }
 
 /// Pick a human-made caption track: the wanted language first (exact, then
-/// regional variants like en-GB), then the video's own language.
+/// regional variants like en-GB), then the video's own language, or English
+/// when that isn't known.
 pub fn pick_caption_lang(info: &VideoInfo, want: &str) -> Option<String> {
     let subs = info.subtitles.as_ref()?;
     let keys: Vec<&String> = subs.keys().filter(|k| k.as_str() != "live_chat").collect();
@@ -249,21 +320,34 @@ pub fn pick_caption_lang(info: &VideoInfo, want: &str) -> Option<String> {
         variants.sort();
         variants.first().map(|k| (*k).clone())
     };
-    find(want).or_else(|| {
-        let lang = info.language.as_deref()?;
-        let base = lang.split('-').next().unwrap_or(lang);
-        if base == want { None } else { find(base) }
+    // In YouTube's own codes too, like "iw" for Hebrew ("he").
+    let yt_want = base_lang(want);
+    let found = find(want).or_else(|| {
+        if yt_want == want {
+            None
+        } else {
+            find(&yt_want)
+        }
+    });
+    found.or_else(|| match info.language.as_deref() {
+        Some(lang) => {
+            let base = base_lang(lang);
+            if base == yt_want { None } else { find(&base) }
+        }
+        // With no language to go on, English captions written by a person
+        // still beat this Mac's model, which only does English anyway.
+        None if yt_want != "en" => find("en"),
+        None => None,
     })
 }
 
-pub fn download_captions(url: &str, lang: &str, dir: &Path) -> Result<PathBuf> {
-    let out = yt_dlp()
-        .args(["--skip-download", "--write-subs", "--sub-langs", lang])
+pub fn download_captions(from: Origin, lang: &str, dir: &Path) -> Result<PathBuf> {
+    let mut cmd = yt_dlp();
+    cmd.args(["--skip-download", "--write-subs", "--sub-langs", lang])
         .args(["--sub-format", "json3", "-o"])
-        .arg(dir.join("captions.%(ext)s"))
-        .args(["--", url])
-        .output()
-        .map_err(not_found)?;
+        .arg(dir.join("captions.%(ext)s"));
+    from.add_to(&mut cmd);
+    let out = cmd.output().map_err(not_found)?;
     if !out.status.success() {
         bail!("{}", last_lines(&out.stderr));
     }
@@ -271,27 +355,69 @@ pub fn download_captions(url: &str, lang: &str, dir: &Path) -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("no json3 captions were saved"))
 }
 
-/// Pick YouTube's automatic transcript in the video's own language (the
-/// "-orig" track), not a machine translation of it. Falls back to the
-/// wanted language when YouTube doesn't mark an original.
+/// Pick YouTube's automatic transcript in the language the video is spoken
+/// in, not a machine translation of it.
+///
+/// YouTube marks that transcript "-orig" (e.g. "en-orig"). A video it has
+/// dubbed with AI voices has an "-orig" transcript for every dubbed voice
+/// too, so the right one is in the video's own language, which yt-dlp reads
+/// from the original audio track. If yt-dlp doesn't know that language, a
+/// lone "-orig" is taken, and of several only one in the wanted language is
+/// trusted. Falls back to the wanted language when nothing is marked
+/// "-orig".
 pub fn pick_auto_caption_lang(info: &VideoInfo, want: &str) -> Option<String> {
     let auto = info.automatic_captions.as_ref()?;
-    let mut originals: Vec<&String> = auto.keys().filter(|k| k.ends_with("-orig")).collect();
+    let mut originals: Vec<&str> = auto
+        .keys()
+        .filter_map(|k| k.strip_suffix("-orig"))
+        .collect();
     originals.sort();
-    if let Some(k) = originals.first() {
-        return Some((*k).clone());
+    if originals.is_empty() {
+        return auto.contains_key(want).then(|| want.to_string());
     }
-    auto.contains_key(want).then(|| want.to_string())
+    let pick = match info.language.as_deref() {
+        // The video's own language, or nothing rather than a dub.
+        Some(lang) => matching(&originals, lang),
+        None if originals.len() == 1 => Some(originals[0]),
+        None => matching(&originals, want),
+    };
+    pick.map(|l| format!("{l}-orig"))
 }
 
-pub fn download_auto_captions(url: &str, lang: &str, dir: &Path) -> Result<PathBuf> {
-    let out = yt_dlp()
-        .args(["--skip-download", "--write-auto-subs", "--sub-langs", lang])
+/// The track in `lang` among `langs`: exactly, or else the first in the same
+/// language whatever its region or script ("zh-Hans" for "zh-CN").
+fn matching<'a>(langs: &[&'a str], lang: &str) -> Option<&'a str> {
+    let wanted = base_lang(lang);
+    langs
+        .iter()
+        .find(|l| **l == lang)
+        .or_else(|| langs.iter().find(|l| base_lang(l) == wanted))
+        .copied()
+}
+
+/// A language without its region or script, in the codes YouTube uses for
+/// transcripts: "zh" for "zh-Hans", and the older "iw" for Hebrew ("he")
+/// and "no" for Norwegian ("nb").
+fn base_lang(code: &str) -> String {
+    let base = code
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(code)
+        .to_ascii_lowercase();
+    match base.as_str() {
+        "he" => "iw".to_string(),
+        "nb" => "no".to_string(),
+        _ => base,
+    }
+}
+
+pub fn download_auto_captions(from: Origin, lang: &str, dir: &Path) -> Result<PathBuf> {
+    let mut cmd = yt_dlp();
+    cmd.args(["--skip-download", "--write-auto-subs", "--sub-langs", lang])
         .args(["--sub-format", "json3", "-o"])
-        .arg(dir.join("auto.%(ext)s"))
-        .args(["--", url])
-        .output()
-        .map_err(not_found)?;
+        .arg(dir.join("auto.%(ext)s"));
+    from.add_to(&mut cmd);
+    let out = cmd.output().map_err(not_found)?;
     if !out.status.success() {
         bail!("{}", last_lines(&out.stderr));
     }
@@ -306,22 +432,23 @@ pub fn download_auto_captions(url: &str, lang: &str, dir: &Path) -> Result<PathB
 /// Opus because it holds speech up well at low bitrates, then take the
 /// lowest bitrate: on YouTube that's format 249, about 50 kbps, roughly a
 /// third the size of the default.
-pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
+pub fn download_audio(from: Origin, dir: &Path, show: &Show) -> Result<PathBuf> {
     const TEMPLATE: &str = "download:YTT|%(progress.downloaded_bytes)s|%(progress.total_bytes)s\
                             |%(progress.total_bytes_estimate)s|%(progress.speed)s";
-    let mut child = yt_dlp()
-        .args([
-            "-f",
-            "ba/b",
-            "-S",
-            "lang,acodec:opus,+abr",
-            "--newline",
-            "--progress-template",
-            TEMPLATE,
-            "-o",
-        ])
-        .arg(dir.join("audio.%(ext)s"))
-        .args(["--", url])
+    let mut cmd = yt_dlp();
+    cmd.args([
+        "-f",
+        "ba/b",
+        "-S",
+        "lang,acodec:opus,+abr",
+        "--newline",
+        "--progress-template",
+        TEMPLATE,
+        "-o",
+    ])
+    .arg(dir.join("audio.%(ext)s"));
+    from.add_to(&mut cmd);
+    let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -335,9 +462,7 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
         s
     });
 
-    let bar = progress::bar("Downloading ");
-    // yt-dlp can take a little while before the first bytes arrive.
-    bar.set_prefix("starting…");
+    show.start(Stage::Audio, "Downloading ");
     let stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
     for line in stdout.lines().map_while(Result::ok) {
         let Some(rest) = line.strip_prefix("YTT|") else {
@@ -347,9 +472,7 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
         let num = |i: usize| f.get(i).and_then(|v| v.trim().parse::<f64>().ok());
         let Some(got) = num(0) else { continue };
         let total = num(1).or(num(2)).filter(|t| *t > 0.0);
-        if let Some(t) = total {
-            bar.set_position(((got / t) * 1000.0).min(1000.0) as u64);
-        }
+        let share = total.map(|t| (got / t).min(1.0));
         let mut info = match total {
             Some(t) => format!("{:.1}/{:.1} MB", got / 1e6, t / 1e6),
             None => format!("{:.1} MB", got / 1e6),
@@ -357,13 +480,13 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
         if let Some(speed) = num(3) {
             info.push_str(&format!(" · {:.1} MB/s", speed / 1e6));
         }
-        bar.set_prefix(info);
+        show.progress(Stage::Audio, share, &info);
     }
 
     let status = child.wait()?;
     let err = err_reader.join().unwrap_or_default();
     if !status.success() {
-        bar.finish_and_clear();
+        show.clear();
         return Err(failed(
             format!(
                 "Couldn't download the audio: {}",
@@ -375,13 +498,14 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
     let Some(path) = find_file(dir, "audio.", |n| {
         !n.ends_with(".part") && !n.ends_with(".ytdl")
     }) else {
-        bar.finish_and_clear();
+        show.clear();
         bail!("yt-dlp finished but no audio file was saved");
     };
-    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    progress::done(
-        &bar,
-        format!("Downloaded audio ({:.1} MB)", size as f64 / 1e6),
+    let mb = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) as f64 / 1e6;
+    show.finish(
+        Stage::Audio,
+        Some(format!("Downloaded audio ({mb:.1} MB)")),
+        &format!("{mb:.1} MB"),
     );
     Ok(path)
 }
@@ -402,6 +526,46 @@ fn find_file(dir: &Path, prefix: &str, ok: impl Fn(&str) -> bool) -> Option<Path
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_mix_link_gives_the_video_it_starts_from() {
+        let mix = Link::Mix("JWoYy4Ah81s".into());
+        for link in [
+            "https://youtube.com/playlist?list=RDJWoYy4Ah81s&playnext=1&si=6QxaM3NmoFJNiU-1",
+            "https://www.youtube.com/playlist?list=RDJWoYy4Ah81s",
+            "https://music.youtube.com/playlist?list=RDAMVMJWoYy4Ah81s",
+            "https://m.youtube.com/playlist/?si=x&list=RDJWoYy4Ah81s#top",
+        ] {
+            assert_eq!(read_link(link), mix, "{link}");
+        }
+    }
+
+    #[test]
+    fn a_playlist_link_is_known_without_asking_youtube() {
+        for link in [
+            "https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG",
+            "https://youtube.com/playlist?list=OLAK5uy_kDk9xu6YkU8vV4R6ZbYc7aK9eb0hYrwQs",
+            // An album radio and My Mix: no one video to start from.
+            "https://music.youtube.com/playlist?list=RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs",
+            "https://www.youtube.com/playlist?list=RDMM",
+            "https://www.youtube.com/playlist",
+        ] {
+            assert_eq!(read_link(link), Link::Playlist, "{link}");
+        }
+    }
+
+    #[test]
+    fn a_link_with_a_video_in_it_is_left_alone() {
+        for link in [
+            "https://www.youtube.com/watch?v=JWoYy4Ah81s&list=RDJWoYy4Ah81s&start_radio=1",
+            "https://youtu.be/JWoYy4Ah81s?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG",
+            "https://www.youtube.com/shorts/JWoYy4Ah81s",
+            "https://example.com/playlist?list=RDJWoYy4Ah81s",
+            "JWoYy4Ah81s",
+        ] {
+            assert_eq!(read_link(link), Link::Other, "{link}");
+        }
+    }
+
     fn info(langs: &[&str], video_lang: Option<&str>) -> VideoInfo {
         VideoInfo {
             title: None,
@@ -419,11 +583,16 @@ mod tests {
             automatic_captions: None,
             kind: None,
             live_status: None,
+            chapters: None,
         }
     }
 
     fn auto(langs: &[&str]) -> VideoInfo {
-        let mut i = info(&[], None);
+        auto_in(langs, None)
+    }
+
+    fn auto_in(langs: &[&str], video_lang: Option<&str>) -> VideoInfo {
+        let mut i = info(&[], video_lang);
         i.automatic_captions = Some(
             langs
                 .iter()
@@ -530,6 +699,72 @@ mod tests {
         );
         assert_eq!(pick_auto_caption_lang(&auto(&["de"]), "en"), None);
         assert_eq!(pick_auto_caption_lang(&info(&[], None), "en"), None);
+        // A lone original in another language than the video's audio is a
+        // dub's, so it isn't used.
+        assert_eq!(
+            pick_auto_caption_lang(&auto_in(&["en", "es-orig"], Some("en")), "en"),
+            None
+        );
+        assert_eq!(
+            pick_auto_caption_lang(&auto_in(&["en-orig"], Some("en-GB")), "fr").as_deref(),
+            Some("en-orig")
+        );
+    }
+
+    #[test]
+    fn matches_languages_written_differently() {
+        let zh = auto_in(&["ar-orig", "zh-Hans", "zh-Hans-orig"], Some("zh-CN"));
+        assert_eq!(
+            pick_auto_caption_lang(&zh, "en").as_deref(),
+            Some("zh-Hans-orig")
+        );
+        let he = auto_in(&["ar-orig", "iw-orig"], Some("he"));
+        assert_eq!(
+            pick_auto_caption_lang(&he, "en").as_deref(),
+            Some("iw-orig")
+        );
+        let pt = auto_in(&["ar-orig", "pt-orig"], Some("pt-BR"));
+        assert_eq!(
+            pick_auto_caption_lang(&pt, "en").as_deref(),
+            Some("pt-orig")
+        );
+    }
+
+    /// The layout of a real dubbed video (-0uvPVwPFgM, November 2026): an
+    /// "-orig" transcript for each AI-dubbed voice as well as the speaker's.
+    /// Taking the first alphabetically gave the Arabic dub.
+    #[test]
+    fn picks_the_speakers_transcript_on_a_dubbed_video() {
+        let dubbed = [
+            "ar-orig", "ar", "bn-orig", "de-orig", "en", "en-orig", "fr-orig", "hi-orig",
+            "iw-orig", "ja-orig", "nl-orig", "pt-orig",
+        ];
+        let video = auto_in(&dubbed, Some("en-US"));
+        assert_eq!(
+            pick_auto_caption_lang(&video, "en").as_deref(),
+            Some("en-orig")
+        );
+        // Someone whose language is French still gets what was said.
+        assert_eq!(
+            pick_auto_caption_lang(&video, "fr").as_deref(),
+            Some("en-orig")
+        );
+        // An exact match wins over the language alone.
+        let exact = auto_in(&["en-US-orig", "en-orig", "fr-orig"], Some("en-US"));
+        assert_eq!(
+            pick_auto_caption_lang(&exact, "en").as_deref(),
+            Some("en-US-orig")
+        );
+        // The video's language has no transcript: no dub is used instead.
+        let missing = auto_in(&["ar-orig", "fr-orig"], Some("es"));
+        assert_eq!(pick_auto_caption_lang(&missing, "fr"), None);
+        // Language unknown: only one in the wanted language is trusted.
+        let unknown = auto(&dubbed);
+        assert_eq!(
+            pick_auto_caption_lang(&unknown, "en").as_deref(),
+            Some("en-orig")
+        );
+        assert_eq!(pick_auto_caption_lang(&unknown, "es"), None);
     }
 
     #[test]
@@ -548,5 +783,22 @@ mod tests {
         );
         assert_eq!(pick_caption_lang(&info(&["de"], Some("fr")), "en"), None);
         assert_eq!(pick_caption_lang(&info(&["live_chat"], None), "en"), None);
+        // Someone reading French, a video of unknown language: English
+        // captions written by a person are still used.
+        assert_eq!(
+            pick_caption_lang(&info(&["en"], None), "fr").as_deref(),
+            Some("en")
+        );
+        assert_eq!(pick_caption_lang(&info(&["de"], None), "fr"), None);
+        // YouTube's older code for Hebrew, whether it's the wanted language
+        // or the video's.
+        assert_eq!(
+            pick_caption_lang(&info(&["en", "iw"], None), "he").as_deref(),
+            Some("iw")
+        );
+        assert_eq!(
+            pick_caption_lang(&info(&["iw"], Some("he")), "en").as_deref(),
+            Some("iw")
+        );
     }
 }
