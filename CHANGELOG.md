@@ -4,8 +4,8 @@
 
 - **Windows.** The same Transclip, for Windows 10 and 11: download
   Transclip-Setup.exe from the release and open it. It installs Transclip
-  (desktop, Start menu and `transclip` in Terminal), yt-dlp and ffmpeg with
-  winget, and the speech model, with no administrator password.
+  (desktop, Start menu and `transclip` in Terminal) and downloads yt-dlp,
+  ffmpeg, Deno and the speech model, with no administrator password.
 - The speech model now comes with the install, on a Mac through Homebrew
   too, so it's there from the first video without captions. Uninstalling
   removes it.

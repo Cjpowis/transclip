@@ -37,9 +37,9 @@ and Windows 10 or 11 PCs. Free and open source.
 2. Open it. The first time, Windows may say it **protected your PC**,
    because Transclip isn't signed with a paid certificate: click
    **More info**, then **Run anyway**.
-3. Click **Install**. It installs Transclip, **yt-dlp** and **ffmpeg**
-   (with winget, Windows' own installer) and NVIDIA's speech model (about
-   650 MB), so it takes a few minutes.
+3. Click **Install**. It installs Transclip and downloads **yt-dlp**,
+   **ffmpeg**, **Deno** (which yt-dlp needs for YouTube) and NVIDIA's
+   speech model: about 850 MB, so it takes a few minutes.
 
 ## Use
 
@@ -103,7 +103,7 @@ brew reinstall --HEAD yt-dlp
 ```
 
 and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`. On
-Windows, update it with `winget upgrade yt-dlp.yt-dlp`.
+Windows, update it with `yt-dlp -U`.
 
 ## Good to know
 
@@ -129,8 +129,9 @@ brew uninstall transclip
 
 On Windows: **Settings**, **Apps**, **Transclip**, **Uninstall**.
 
-Either way the speech model goes too. yt-dlp and ffmpeg stay, as other
-programs may use them.
+On a Mac the speech model goes too, and yt-dlp and ffmpeg stay, as other
+programs may use them. On Windows everything goes, as yt-dlp, ffmpeg and
+Deno are Transclip's own copies.
 
 ## Questions or problems
 

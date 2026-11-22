@@ -77,5 +77,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DAppVersion=$version" "/DExe=$PWD\target\release\transclip.exe" "/O$env:RUNNER_TEMP\setup" packaging\windows\transclip.iss
+          # Microsoft's C++ runtime DLLs, from the runner's Visual Studio, to
+          # go beside transclip.exe (a new Windows doesn't have them).
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $runtime = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+          if (-not $runtime) { Write-Output "::error::no Microsoft C++ runtime folder under $vs"; exit 1 }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DAppVersion=$version" "/DExe=$PWD\target\release\transclip.exe" "/DRuntime=$($runtime.FullName)" "/O$env:RUNNER_TEMP\setup" packaging\windows\transclip.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

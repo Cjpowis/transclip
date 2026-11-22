@@ -4,7 +4,8 @@
 #   mac      the Apple Silicon binary, for the Homebrew formula in
 #            Cjpowis/homebrew-tap
 #   windows  Transclip-Setup.exe, the setup wizard (packaging/windows), which
-#            installs Transclip, yt-dlp, ffmpeg and the speech model
+#            installs Transclip and the C++ runtime it needs, and downloads
+#            yt-dlp, ffmpeg, Deno and the speech model
 #   publish  the GitHub release: both, with their SHA-256s
 name: Release
 
@@ -80,7 +81,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $version = $env:GITHUB_REF_NAME.Substring(1)
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DAppVersion=$version" "/DExe=$PWD\target\release\transclip.exe" "/O$PWD\dist" packaging\windows\transclip.iss
+          # Microsoft's C++ runtime DLLs, from the runner's Visual Studio, to
+          # go beside transclip.exe (a new Windows doesn't have them).
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $runtime = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+          if (-not $runtime) { Write-Output "::error::no Microsoft C++ runtime folder under $vs"; exit 1 }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DAppVersion=$version" "/DExe=$PWD\target\release\transclip.exe" "/DRuntime=$($runtime.FullName)" "/O$PWD\dist" packaging\windows\transclip.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -126,7 +132,7 @@ jobs:
             printf '%s\n\n' "$notes"
             echo "**Mac:** \`brew install cjpowis/tap/transclip\` (already installed: \`brew upgrade transclip\`)"
             echo
-            echo "**Windows:** download **Transclip-Setup.exe** below and open it. It installs Transclip, yt-dlp, ffmpeg and the speech model. Windows may say it \"protected your PC\" the first time: click **More info**, then **Run anyway**."
+            echo "**Windows:** download **Transclip-Setup.exe** below and open it. It installs Transclip, yt-dlp, ffmpeg, Deno and the speech model. Windows may say it \"protected your PC\" the first time: click **More info**, then **Run anyway**."
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
