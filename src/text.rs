@@ -22,9 +22,58 @@ pub fn strip_controls(s: &str) -> String {
         .collect()
 }
 
+/// A chapter of the video: where it starts, in seconds, and its title.
+pub struct Chapter {
+    pub start: f32,
+    pub title: String,
+}
+
+/// A piece of the finished transcript.
+pub enum Block {
+    /// A chapter's title.
+    Heading(String),
+    /// A paragraph, and where in the video it starts, in seconds.
+    Para { start: f32, text: String },
+}
+
+/// Paragraphs, with a heading where each chapter starts. Paragraphs never
+/// run across a chapter break. Chapters are only used when there are two or
+/// more, and a chapter with no speech gets no heading.
+pub fn blocks(items: &[Timed], chapters: &[Chapter]) -> Vec<Block> {
+    // Captions often start a moment before the chapter mark they belong to.
+    const LEAD: f32 = 0.5;
+    let chapters: &[Chapter] = if chapters.len() >= 2 { chapters } else { &[] };
+    let until = |from: usize, t: f32| {
+        from + items[from..]
+            .iter()
+            .position(|it| it.start >= t - LEAD)
+            .unwrap_or(items.len() - from)
+    };
+    let paras = |slice: &[Timed]| {
+        paragraphs(slice)
+            .into_iter()
+            .map(|(start, text)| Block::Para { start, text })
+            .collect::<Vec<_>>()
+    };
+
+    // Anything before the first chapter (rare) comes first, untitled.
+    let mut i = until(0, chapters.first().map_or(f32::INFINITY, |c| c.start));
+    let mut out = paras(&items[..i]);
+    for (n, ch) in chapters.iter().enumerate() {
+        let end = until(i, chapters.get(n + 1).map_or(f32::INFINITY, |c| c.start));
+        let body = paras(&items[i..end]);
+        if !body.is_empty() {
+            out.push(Block::Heading(ch.title.clone()));
+            out.extend(body);
+        }
+        i = end;
+    }
+    out
+}
+
 /// Join snippets into paragraphs, breaking at pauses and at sentence ends
-/// once a paragraph gets long.
-pub fn paragraphs(items: &[Timed]) -> Vec<String> {
+/// once a paragraph gets long. Each comes with where it starts, in seconds.
+pub fn paragraphs(items: &[Timed]) -> Vec<(f32, String)> {
     const PAUSE: f32 = 1.5;
     const LONG_PAUSE: f32 = 3.0;
     const SOFT_MAX: usize = 600;
@@ -32,6 +81,7 @@ pub fn paragraphs(items: &[Timed]) -> Vec<String> {
 
     let mut paras = Vec::new();
     let mut cur = String::new();
+    let mut cur_start = 0.0;
     let mut last_end: Option<f32> = None;
 
     for it in items {
@@ -46,16 +96,19 @@ pub fn paragraphs(items: &[Timed]) -> Vec<String> {
                 || (sentence_done && (gap >= PAUSE || cur.len() >= SOFT_MAX))
                 || cur.len() >= HARD_MAX;
             if brk {
-                paras.push(std::mem::take(&mut cur));
+                paras.push((cur_start, std::mem::take(&mut cur)));
             } else {
                 cur.push(' ');
             }
+        }
+        if cur.is_empty() {
+            cur_start = it.start;
         }
         cur.push_str(t);
         last_end = Some(it.end);
     }
     if !cur.is_empty() {
-        paras.push(cur);
+        paras.push((cur_start, cur));
     }
     paras
 }
@@ -115,7 +168,77 @@ mod tests {
         ];
         assert_eq!(
             paragraphs(&items),
-            vec!["Hello there. How are you?", "New topic."]
+            vec![
+                (0.0, "Hello there. How are you?".to_string()),
+                (4.0, "New topic.".to_string())
+            ]
+        );
+    }
+
+    fn chapter(start: f32, title: &str) -> Chapter {
+        Chapter {
+            start,
+            title: title.into(),
+        }
+    }
+
+    /// Headings and paragraphs as plain strings, for comparing.
+    fn shape(blocks: &[Block]) -> Vec<String> {
+        blocks
+            .iter()
+            .map(|b| match b {
+                Block::Heading(h) => format!("# {h}"),
+                Block::Para { start, text } => format!("{start}: {text}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn puts_headings_where_chapters_start_and_breaks_paragraphs_there() {
+        let items = [
+            t(0.0, 1.0, "Welcome"),
+            t(1.0, 2.0, "to the show"),
+            // Starts a moment before the 2 s mark, so it belongs to chapter 2.
+            t(1.8, 3.0, "First point"),
+            t(3.0, 4.0, "goes on"),
+            t(10.0, 11.0, "Second point."),
+        ];
+        let chapters = [
+            chapter(0.0, "Intro"),
+            chapter(2.0, "Point one"),
+            chapter(6.0, "Nothing said here"),
+            chapter(9.0, "Point two"),
+        ];
+        assert_eq!(
+            shape(&blocks(&items, &chapters)),
+            vec![
+                "# Intro",
+                "0: Welcome to the show",
+                "# Point one",
+                "1.8: First point goes on",
+                "# Point two",
+                "10: Second point.",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_single_chapter_or_none_means_no_headings() {
+        let items = [t(0.0, 1.0, "Just talk.")];
+        assert_eq!(shape(&blocks(&items, &[])), vec!["0: Just talk."]);
+        assert_eq!(
+            shape(&blocks(&items, &[chapter(0.0, "Only one")])),
+            vec!["0: Just talk."]
+        );
+    }
+
+    #[test]
+    fn speech_before_the_first_chapter_comes_first_untitled() {
+        let items = [t(0.0, 1.0, "Cold open."), t(5.0, 6.0, "Main bit.")];
+        let chapters = [chapter(4.0, "Main"), chapter(20.0, "End")];
+        assert_eq!(
+            shape(&blocks(&items, &chapters)),
+            vec!["0: Cold open.", "# Main", "5: Main bit."]
         );
     }
 

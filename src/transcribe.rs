@@ -4,13 +4,20 @@
 //! fastest, and no dropped passages.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use parakeet_rs::{ParakeetUnified, TimestampMode, Transcriber};
 
 use crate::progress::{MUTED, RESET};
+use crate::show::{Show, Stage};
 use crate::text::Timed;
+
+/// How big the model's files are in all (663,349,302 bytes), for the live
+/// screen.
+const MODEL_MB: f64 = 663.0;
 
 const MODEL: &str = "parakeet-unified-en-0.6b-int8";
 /// The model's repo at a fixed commit, so the files can't change under us.
@@ -46,6 +53,12 @@ const FILES: [(&str, &str, &str); 5] = [
     ),
 ];
 const SR: usize = 16_000;
+/// Pieces aim for this length, cut at the quietest moment within `WINDOW`.
+const TARGET: usize = 30 * SR;
+const WINDOW: usize = 5 * SR / 2;
+const FRAME: usize = 480; // 30 ms
+/// No piece `run` cuts is shorter than this, in seconds, except the last.
+pub const SHORTEST_PIECE_SECS: f64 = (TARGET - WINDOW - FRAME) as f64 / SR as f64;
 
 /// ~/Library/Application Support/transclip
 fn app_dir() -> Result<PathBuf> {
@@ -61,7 +74,7 @@ pub fn model_dir() -> Result<PathBuf> {
 
 /// Before the rename the model lived under "yt-transcribe". Move it across
 /// rather than download 650 MB again.
-fn move_old_model(dir: &Path) {
+fn move_old_model(dir: &Path, show: &Show) {
     let Some(base) = dirs::data_dir() else { return };
     let old_app = base.join("yt-transcribe");
     let old = old_app.join("models").join(MODEL);
@@ -78,10 +91,10 @@ fn move_old_model(dir: &Path) {
             let _ = std::fs::remove_dir(old_app.join("models"));
             let _ = std::fs::remove_dir(&old_app);
         }
-        Err(e) => eprintln!(
-            "{MUTED}•{RESET} Couldn't move the speech model from {} ({e}), so it will download again. You can delete that old folder afterwards.",
+        Err(e) => show.note(&format!(
+            "Couldn't move the speech model from {} ({e}), so it will download again. You can delete that old folder afterwards.",
             old_app.display()
-        ),
+        )),
     }
 }
 
@@ -137,22 +150,42 @@ pub fn model_size() -> Option<u64> {
         .then(|| folder_size(&dir))
 }
 
+/// Whether the model still has to be downloaded (the first time).
+pub fn model_missing() -> bool {
+    model_dir().map_or(true, |dir| {
+        FILES.iter().any(|(_, local, _)| !dir.join(local).is_file())
+    })
+}
+
 /// Download any missing model files (one time, about 650 MB).
-pub fn ensure_model() -> Result<PathBuf> {
+pub fn ensure_model(show: &Show) -> Result<PathBuf> {
     let dir = model_dir()?;
-    move_old_model(&dir);
+    move_old_model(&dir, show);
     let missing: Vec<(&str, &str, &str)> = FILES
         .iter()
         .copied()
         .filter(|(_, local, _)| !dir.join(local).is_file())
         .collect();
     if missing.is_empty() {
+        // It was there after all (moved across from the old folder, or
+        // another run got it first), so the live screen's step is done.
+        show.finish(Stage::Model, None, "");
         return Ok(dir);
     }
     std::fs::create_dir_all(&dir)?;
-    eprintln!(
-        "{MUTED}•{RESET} First run: downloading NVIDIA's speech model (about 650 MB, once only)"
+    show.start(
+        Stage::Model,
+        "First run: downloading NVIDIA's speech model (about 650 MB, once only)",
     );
+    // Bytes of the model on disk so far, for the live screen. Only files
+    // that aren't about to be downloaded, in case another run has just put
+    // one of those in place.
+    let mut have: u64 = FILES
+        .iter()
+        .filter(|(_, local, _)| !missing.iter().any(|(_, m, _)| m == local))
+        .filter_map(|(_, local, _)| std::fs::metadata(dir.join(local)).ok())
+        .map(|m| m.len())
+        .sum();
     for (remote, local, sha256) in missing {
         // A staging file of its own for each attempt, so two runs downloading
         // at once can't overwrite each other's file before it's moved into
@@ -164,23 +197,66 @@ pub fn ensure_model() -> Result<PathBuf> {
             .tempfile_in(&dir)?
             .into_temp_path();
         crate::cleanup::register(&part);
-        let got = download_checked(remote, &part, sha256);
+        let got = download_checked(remote, &part, sha256, show, have);
         crate::cleanup::unregister(&part);
         got?;
+        have += std::fs::metadata(&part).map_or(0, |m| m.len());
         part.persist(dir.join(local))?;
     }
+    show.finish(Stage::Model, None, &format!("{:.0} MB", have as f64 / 1e6));
     Ok(dir)
 }
 
-fn download_checked(remote: &str, part: &Path, sha256: &str) -> Result<()> {
-    let status = Command::new("curl")
-        .args(["-L", "--fail", "--progress-bar", "-o"])
-        .arg(part)
-        .arg(format!("{BASE_URL}/{remote}"))
-        .status()
-        .context("couldn't run curl")?;
-    if !status.success() {
-        bail!("Couldn't download the model file {remote}");
+/// Download one model file with curl. In lines, curl draws its own bar. On
+/// the live screen it keeps quiet, and the size downloaded so far is shown
+/// instead; `before` is how much of the model was already on disk.
+fn download_checked(
+    remote: &str,
+    part: &Path,
+    sha256: &str,
+    show: &Show,
+    before: u64,
+) -> Result<()> {
+    let live = matches!(show, Show::Live(_));
+    let mut curl = Command::new("curl");
+    curl.args(["-L", "--fail"]);
+    if live {
+        // Nothing on the screen, but keep curl's reason if it fails.
+        curl.args(["--silent", "--show-error"])
+            .stderr(Stdio::piped());
+    } else {
+        curl.arg("--progress-bar").stderr(Stdio::inherit());
+    }
+    curl.arg("-o").arg(part).arg(format!("{BASE_URL}/{remote}"));
+    let done = AtomicBool::new(false);
+    let out = std::thread::scope(|s| {
+        if live {
+            // If no thread can be started, the screen just shows no size.
+            let _ = std::thread::Builder::new().spawn_scoped(s, || {
+                while !done.load(Ordering::Relaxed) {
+                    let now = before + std::fs::metadata(part).map_or(0, |m| m.len());
+                    let mb = now as f64 / 1e6;
+                    show.progress(
+                        Stage::Model,
+                        Some((mb / MODEL_MB).min(0.99)),
+                        &format!("{mb:.0}/{MODEL_MB:.0} MB"),
+                    );
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+            });
+        }
+        // In lines curl's stderr is the terminal, so this is empty.
+        let out = curl.output();
+        done.store(true, Ordering::Relaxed);
+        out
+    })
+    .context("couldn't run curl")?;
+    if !out.status.success() {
+        let why = String::from_utf8_lossy(&out.stderr);
+        match why.trim() {
+            "" => bail!("Couldn't download the model file {remote}"),
+            why => bail!("Couldn't download the model file {remote} ({why})"),
+        }
     }
     if file_sha256(part)? != sha256 {
         bail!(
@@ -257,10 +333,6 @@ pub fn run(
     samples: &[f32],
     mut progress: impl FnMut(f64),
 ) -> Result<Vec<Timed>> {
-    const TARGET: usize = 30 * SR;
-    const WINDOW: usize = 5 * SR / 2;
-    const FRAME: usize = 480; // 30 ms
-
     let mut out = Vec::new();
     let mut pos = 0;
     progress(0.0);
@@ -348,5 +420,16 @@ mod tests {
         }
         let cut = quiet_split(&s, 30 * SR, 5 * SR / 2, 480);
         assert!(cut >= quiet && cut <= quiet + 480, "cut at {cut}");
+    }
+
+    #[test]
+    fn no_piece_is_shorter_than_the_bar_assumes() {
+        // All silence: the cut lands as early as it ever can.
+        let s = vec![0.0f32; 100 * SR];
+        let cut = quiet_split(&s, TARGET, WINDOW, FRAME);
+        assert!(
+            cut as f64 / SR as f64 >= SHORTEST_PIECE_SECS,
+            "cut at {cut}"
+        );
     }
 }
