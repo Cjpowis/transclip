@@ -1,9 +1,10 @@
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, Download } from "lucide-react"
 import { motion } from "motion/react"
 
-import { INSTALL_COMMAND, LINKS } from "@/content/transclip"
+import { INSTALL_COMMAND, LINKS, WINDOWS_DOWNLOAD } from "@/content/transclip"
 
 import { CopyCommand, GitHubMark } from "./bits"
+import { setPlatform, usePlatform } from "./platform"
 import { RecordingDemo } from "./recording-demo"
 
 export function Header() {
@@ -57,6 +58,7 @@ export function Header() {
 }
 
 export function Hero() {
+  const platform = usePlatform()
   return (
     <section
       id="top"
@@ -80,7 +82,7 @@ export function Hero() {
           <span aria-hidden className="max-sm:hidden">
             ·
           </span>
-          <span className="max-sm:hidden">For Macs with Apple Silicon</span>
+          <span className="max-sm:hidden">For Macs and Windows PCs</span>
         </motion.p>
 
         <motion.h1
@@ -133,19 +135,40 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.32 }}
           className="mt-8 flex flex-col items-center gap-3.5"
         >
-          <CopyCommand
-            command={INSTALL_COMMAND}
-            label="Install command"
-            size="lg"
-            className="w-full max-w-[30rem]"
-          />
+          {platform === "windows" ? (
+            <a
+              href={WINDOWS_DOWNLOAD}
+              className="inline-flex items-center gap-2.5 rounded-full bg-coral px-7 py-3.5 text-lg font-semibold text-white shadow-[0_10px_30px_-12px_rgb(240_96_63/0.7)] transition-colors hover:bg-coral-deep"
+            >
+              <Download className="size-5" aria-hidden />
+              Download for Windows
+            </a>
+          ) : (
+            <CopyCommand
+              command={INSTALL_COMMAND}
+              label="Install command"
+              size="lg"
+              className="w-full max-w-[30rem]"
+            />
+          )}
           <a
             href="#install"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink"
           >
-            Never used Terminal? It's three steps
+            {platform === "windows"
+              ? "Then open it and click Install"
+              : "Never used Terminal? It's three steps"}
             <ArrowDown className="size-3.5" aria-hidden />
           </a>
+          <button
+            type="button"
+            onClick={() =>
+              setPlatform(platform === "windows" ? "mac" : "windows")
+            }
+            className="text-sm text-ink-soft underline decoration-line underline-offset-4 hover:text-ink"
+          >
+            {platform === "windows" ? "On a Mac?" : "On Windows?"}
+          </button>
         </motion.div>
       </div>
 

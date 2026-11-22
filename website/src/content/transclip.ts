@@ -1,6 +1,6 @@
 /**
  * Every fact and sentence on the site lives here, taken from Transclip's
- * README and source (transclip 0.1.1). Nothing on the page should claim
+ * README and source (transclip 0.3.0). Nothing on the page should claim
  * more than this file does.
  */
 
@@ -23,6 +23,8 @@ export const LINKS = {
 } as const
 
 export const INSTALL_COMMAND = "brew install cjpowis/tap/transclip"
+/** The newest release's setup wizard (GitHub serves the latest release's file at this address). */
+export const WINDOWS_DOWNLOAD = `${REPO}/releases/latest/download/Transclip-Setup.exe`
 export const HOMEBREW_COMMAND =
   '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
 
@@ -49,8 +51,8 @@ export const SOURCES: {
   },
   {
     id: "mac",
-    name: "Listening on your Mac",
-    short: "On your Mac",
+    name: "Listening on your computer",
+    short: "On your computer",
     blurb:
       "NVIDIA's speech model transcribes the audio on your own computer. A 15-minute video takes about 30 seconds.",
   },
@@ -59,7 +61,7 @@ export const SOURCES: {
 export const OPTIONS: { flag: string; does: string }[] = [
   {
     flag: "-t, --transcribe",
-    does: "Skip YouTube's text and always transcribe on your Mac",
+    does: "Skip YouTube's text and always transcribe on your computer",
   },
   {
     flag: "-p, --print",
@@ -67,7 +69,7 @@ export const OPTIONS: { flag: string; does: string }[] = [
   },
   {
     flag: "--lang CODE",
-    does: "Caption language to look for first, like fr (default: your Mac's language)",
+    does: "Caption language to look for first, like fr (default: your computer's language)",
   },
   { flag: "--no-copy", does: "Don't copy to the clipboard" },
   {
@@ -90,9 +92,9 @@ export const OPTIONS: { flag: string; does: string }[] = [
 ]
 
 export const GOOD_TO_KNOW: string[] = [
-  "Early preview, version 0.2. For Macs with Apple Silicon (M1 or later).",
+  "Early preview, version 0.3. For Macs with Apple Silicon (M1 or later) and Windows 10 or 11 PCs.",
   "Live streams, playlists and channel links aren't supported. Give it a single video.",
-  "For videos in other languages, Transclip uses YouTube's own transcript. The speech model on your Mac only understands English.",
-  "The first time it listens on your Mac, it downloads the speech model once (about 650 MB).",
+  "For videos in other languages, Transclip uses YouTube's own transcript. The speech model on your computer only understands English.",
+  "The speech model (about 650 MB) is installed along with Transclip, so it's there from the first video.",
   "Please respect creators' rights when you use transcripts.",
 ]

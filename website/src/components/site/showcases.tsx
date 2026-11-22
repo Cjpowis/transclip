@@ -15,7 +15,7 @@ export function Showcases() {
         eyebrow="The details"
         title="Small things, done properly."
       >
-        No account, no cloud, no tracking. Everything runs on your Mac.
+        No account, no cloud, no tracking. Everything runs on your computer.
       </SectionHeading>
 
       <div className="mx-auto mt-14 grid max-w-6xl gap-5 lg:grid-cols-6">
@@ -30,7 +30,7 @@ export function Showcases() {
         <Tile className="bg-sage lg:col-span-2" delay={0.08}>
           <SpeedArt />
           <TileText title="Quick when it has to listen.">
-            With no captions to borrow, your Mac transcribes the audio itself. A
+            With no captions to borrow, your computer transcribes the audio itself. A
             15-minute video takes about 30 seconds.
           </TileText>
         </Tile>

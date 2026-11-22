@@ -359,7 +359,7 @@ function MacArt({ playing }: { playing: boolean }) {
     <div className="flex h-full flex-col justify-between rounded-xl bg-card p-3.5 ring-1 ring-sage-deep/15">
       <span className="inline-flex items-center gap-1.5 self-start rounded-full bg-sage px-2 py-0.5 text-[10px] font-semibold tracking-wide text-sage-deep uppercase">
         <Laptop className="size-3" aria-hidden />
-        On your Mac
+        On your computer
       </span>
       <div className="flex h-9 items-center gap-[3px]" aria-hidden>
         {bars.map((h, i) => (

@@ -1,12 +1,15 @@
-import { Search } from "lucide-react"
+import { Download, Search } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 import type { ReactNode } from "react"
 
+import smartscreen from "@/assets/windows/smartscreen.png"
+import welcome from "@/assets/windows/welcome.png"
 import {
   GOOD_TO_KNOW,
   HOMEBREW_COMMAND,
   INSTALL_COMMAND,
   LINKS,
+  WINDOWS_DOWNLOAD,
 } from "@/content/transclip"
 
 import {
@@ -17,22 +20,74 @@ import {
   Reveal,
   SectionHeading,
 } from "./bits"
+import { type Platform, setPlatform, usePlatform } from "./platform"
 
 export function Install() {
+  const platform = usePlatform()
   return (
     <section
       id="install"
       className="scroll-mt-16 bg-paper-deep px-5 py-20 sm:px-8 lg:py-28"
     >
-      <SectionHeading
-        eyebrow="Install"
-        title="Never used Terminal? It's three steps."
-      >
-        Terminal is an app already on your Mac. You type a line, press Return,
-        and it does the rest.
-      </SectionHeading>
+      {platform === "windows" ? (
+        <SectionHeading
+          eyebrow="Install"
+          title="On Windows, it's a download and a click."
+        >
+          No Terminal needed. The installer sets everything up, and Transclip
+          opens in a window of its own.
+        </SectionHeading>
+      ) : (
+        <SectionHeading
+          eyebrow="Install"
+          title="Never used Terminal? It's three steps."
+        >
+          Terminal is an app already on your Mac. You type a line, press Return,
+          and it does the rest.
+        </SectionHeading>
+      )}
 
-      <ol className="mx-auto mt-14 grid max-w-6xl gap-5 lg:grid-cols-3">
+      <PlatformSwitch platform={platform} />
+
+      {platform === "windows" ? <WindowsSteps /> : <MacSteps />}
+    </section>
+  )
+}
+
+/** "On a Mac" or "On Windows". */
+function PlatformSwitch({ platform }: { platform: Platform }) {
+  const option = (value: Platform, label: string) => (
+    <button
+      type="button"
+      aria-pressed={platform === value}
+      onClick={() => setPlatform(value)}
+      className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
+        platform === value
+          ? "bg-coral text-white"
+          : "text-ink-soft hover:text-ink"
+      }`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div className="mt-8 flex justify-center">
+      <div
+        role="group"
+        aria-label="Your computer"
+        className="inline-flex gap-1 rounded-full bg-card p-1 ring-1 ring-line"
+      >
+        {option("mac", "On a Mac")}
+        {option("windows", "On Windows")}
+      </div>
+    </div>
+  )
+}
+
+function MacSteps() {
+  return (
+    <>
+      <ol className="mx-auto mt-10 grid max-w-6xl gap-5 lg:grid-cols-3">
         <Step number={1} title="Open Terminal">
           <SpotlightArt />
           <p>
@@ -52,7 +107,7 @@ export function Install() {
             This also installs{" "}
             <strong className="font-semibold text-ink">yt-dlp</strong> and{" "}
             <strong className="font-semibold text-ink">ffmpeg</strong>, which
-            Transclip uses.
+            Transclip uses, and NVIDIA's speech model (about 650 MB).
           </p>
         </Step>
 
@@ -108,7 +163,91 @@ export function Install() {
           </div>
         </div>
       </Reveal>
-    </section>
+    </>
+  )
+}
+
+function WindowsSteps() {
+  return (
+    <>
+      <ol className="mx-auto mt-10 grid max-w-6xl gap-5 lg:grid-cols-3">
+        <Step number={1} title="Download the installer">
+          <a
+            href={WINDOWS_DOWNLOAD}
+            className="inline-flex items-center justify-center gap-2.5 rounded-2xl bg-coral px-5 py-4 text-lg font-semibold text-white transition-colors hover:bg-coral-deep"
+          >
+            <Download className="size-5" aria-hidden />
+            Transclip-Setup.exe
+          </a>
+          <p>
+            It's small. It fetches the rest as it installs: yt-dlp, ffmpeg,
+            Deno and NVIDIA's speech model, about 850 MB in all.
+          </p>
+        </Step>
+
+        <Step number={2} title="Open it, then Run anyway" delay={0.08}>
+          <Screenshot
+            src={smartscreen}
+            alt="Windows saying it protected your PC, with More info clicked and a Run anyway button"
+          />
+          <p>
+            Windows hasn't met Transclip before, so the first time it says it{" "}
+            <strong className="font-semibold text-ink">protected your PC</strong>
+            . Click{" "}
+            <strong className="font-semibold text-ink">More info</strong>, then{" "}
+            <strong className="font-semibold text-ink">Run anyway</strong>.
+          </p>
+        </Step>
+
+        <Step number={3} title="Click Install" delay={0.16}>
+          <Screenshot
+            src={welcome}
+            alt="Transclip's setup, saying what it installs"
+          />
+          <p>
+            A few minutes later Transclip opens. Paste a YouTube link and press{" "}
+            <Kbd>Enter</Kbd>. After that it's in the Start menu and on your
+            desktop, or type <InlineCode>transclip</InlineCode> in Terminal.
+          </p>
+        </Step>
+      </ol>
+
+      <Reveal className="mx-auto mt-5 max-w-6xl rounded-[2rem] bg-card p-6 ring-1 ring-line sm:p-9">
+        <ul className="grid gap-3 text-ink-soft sm:grid-cols-3 sm:gap-6">
+          <li className="flex gap-2">
+            <Dot />
+            For Windows 10 and 11. No administrator password needed.
+          </li>
+          <li className="flex gap-2">
+            <Dot />
+            <span>
+              Keep yt-dlp up to date with{" "}
+              <span className="whitespace-nowrap">
+                <InlineCode>yt-dlp -U</InlineCode>.
+              </span>{" "}
+              Transclip says when it's time.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <Dot />
+            To remove it: Settings, Apps, Transclip, Uninstall. Everything it
+            installed goes with it.
+          </li>
+        </ul>
+      </Reveal>
+    </>
+  )
+}
+
+/** A real screenshot from Windows, framed like the cards around it. */
+function Screenshot({ src, alt }: { src: string; alt: string }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-full rounded-xl ring-1 ring-line"
+      loading="lazy"
+    />
   )
 }
 
