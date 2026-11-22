@@ -3,10 +3,12 @@
 Get the full transcript of a YouTube video onto your clipboard, ready to
 paste into ChatGPT, your notes, or anywhere else.
 
-**Early preview, version 0.2.** For Macs with Apple Silicon (M1 or later).
-Free and open source.
+**Early preview, version 0.3.** For Macs with Apple Silicon (M1 or later)
+and Windows 10 or 11 PCs. Free and open source.
 
 ## Install
+
+### On a Mac
 
 1. Open **Terminal**: press ⌘ and Space, type `Terminal`, press Return.
 2. If you don't have Homebrew yet, paste this and press Return (it's the
@@ -25,11 +27,24 @@ Free and open source.
    brew install cjpowis/tap/transclip
    ```
 
-   This also installs **yt-dlp** and **ffmpeg**, which Transclip uses.
+   This also installs **yt-dlp** and **ffmpeg**, which Transclip uses, and
+   NVIDIA's speech model (about 650 MB).
+
+### On Windows
+
+1. Download
+   [**Transclip-Setup.exe**](https://github.com/Cjpowis/transclip/releases/latest/download/Transclip-Setup.exe).
+2. Open it. The first time, Windows may say it **protected your PC**,
+   because Transclip isn't signed with a paid certificate: click
+   **More info**, then **Run anyway**.
+3. Click **Install**. It installs Transclip, **yt-dlp** and **ffmpeg**
+   (with winget, Windows' own installer) and NVIDIA's speech model (about
+   650 MB), so it takes a few minutes.
 
 ## Use
 
 Type `transclip` and press Return, then paste a YouTube link and press Return.
+On Windows you can also open **Transclip** from the Start menu or the desktop.
 
 You watch it work on one screen: it looks the video up, tries each place the
 words can come from, and shows which one it used. The transcript is copied to
@@ -87,28 +102,35 @@ update it. For the most reliable results, switch to yt-dlp's latest code:
 brew reinstall --HEAD yt-dlp
 ```
 
-and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`.
+and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`. On
+Windows, update it with `winget upgrade yt-dlp.yt-dlp`.
 
 ## Good to know
 
 - Live streams, playlists and channel links aren't supported. Give it a
   single video.
 - For videos in other languages, Transclip uses YouTube's own transcript;
-  the speech model on your Mac only understands English.
+  the speech model on your computer only understands English.
 - Nothing is saved except the speech model, the last error message (for
   `--report`), a tiny note of when to try captions again if YouTube says
   they were asked for too often, and any transcript you choose to save.
   Downloads go in a temporary folder that's deleted afterwards, even if you
   press `q` or Ctrl-C partway through.
-- No account, no cloud, no tracking. Everything runs on your Mac.
+- No account, no cloud, no tracking. Everything runs on your computer.
 - Please respect creators' rights when you use transcripts.
 
 ## Uninstall
 
+On a Mac:
+
 ```
-transclip --delete-model
 brew uninstall transclip
 ```
+
+On Windows: **Settings**, **Apps**, **Transclip**, **Uninstall**.
+
+Either way the speech model goes too. yt-dlp and ffmpeg stay, as other
+programs may use them.
 
 ## Questions or problems
 
@@ -117,8 +139,8 @@ Ask a question in
 problem in [Issues](https://github.com/Cjpowis/transclip/issues).
 
 For a problem, run `transclip --report` and paste what it copies into the
-issue. It lists your Transclip, macOS, yt-dlp and ffmpeg versions and the
-last error, and leaves out links, video IDs and your folder names.
+issue. It lists your Transclip, macOS or Windows, yt-dlp and ffmpeg versions
+and the last error, and leaves out links, video IDs and your folder names.
 
 What's changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 

@@ -1,7 +1,11 @@
-# Publishes a release when a version tag (v0.1.0 and so on) is pushed: builds
-# the Apple Silicon binary on GitHub's Mac runner and attaches it, with its
-# SHA-256, to a GitHub release. The Homebrew formula in Cjpowis/homebrew-tap
-# downloads from there.
+# Publishes a release when a version tag (v0.1.0 and so on) is pushed. Two
+# downloads, built on GitHub's own runners:
+#
+#   mac      the Apple Silicon binary, for the Homebrew formula in
+#            Cjpowis/homebrew-tap
+#   windows  Transclip-Setup.exe, the setup wizard (packaging/windows), which
+#            installs Transclip, yt-dlp, ffmpeg and the speech model
+#   publish  the GitHub release: both, with their SHA-256s
 name: Release
 
 on:
@@ -11,13 +15,14 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: never
+
 jobs:
-  release:
-    name: Build and publish
+  mac:
+    name: Apple Silicon build
     runs-on: macos-latest
     timeout-minutes: 30
-    permissions:
-      contents: write # create the release and upload its files
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,7 +43,71 @@ jobs:
           grep -q "^version = \"$version\"" Cargo.toml
           mkdir -p dist
           tar -czf "dist/transclip-$version-aarch64-apple-darwin.tar.gz" -C target/release transclip
-          (cd dist && shasum -a 256 ./*.tar.gz | sed 's# \./# #' > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mac
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows setup wizard
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 2026-10-16
+        with:
+          toolchain: 1.99.1
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc -vV | grep -Fxq 'host: x86_64-pc-windows-msvc'
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"$version\"" Cargo.toml
+          cargo build --locked --release
+          ./target/release/transclip.exe --version
+      - name: Inno Setup 6.7.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --version 6.7.1 --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the setup wizard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DAppVersion=$version" "/DExe=$PWD\target\release\transclip.exe" "/O$PWD\dist" packaging\windows\transclip.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: dist/Transclip-Setup.exe
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and upload its files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum ./* | sed 's# \./# #' > SHA256SUMS)
           cat dist/SHA256SUMS
       # The release notes are this version's section of CHANGELOG.md, so a
       # version with no changelog entry is never published.
@@ -55,8 +124,9 @@ jobs:
           fi
           {
             printf '%s\n\n' "$notes"
-            echo "Install: \`brew install cjpowis/tap/transclip\`"
-            echo "Already installed: \`brew upgrade transclip\`"
+            echo "**Mac:** \`brew install cjpowis/tap/transclip\` (already installed: \`brew upgrade transclip\`)"
+            echo
+            echo "**Windows:** download **Transclip-Setup.exe** below and open it. It installs Transclip, yt-dlp, ffmpeg and the speech model. Windows may say it \"protected your PC\" the first time: click **More info**, then **Run anyway**."
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \

@@ -1,5 +1,6 @@
-# Checks every pull request and push to main on GitHub's own Apple Silicon
-# Mac runner: format, Clippy, tests and a release build.
+# Checks every pull request and push to main on GitHub's own runners: format,
+# Clippy, tests and a release build on Apple Silicon, and on Windows the same
+# plus the setup wizard built (packaging/windows).
 name: CI
 
 on:
@@ -40,3 +41,41 @@ jobs:
         run: |
           cargo build --locked --release
           ./target/release/transclip --version
+
+  windows:
+    name: Windows build and setup wizard
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 2026-10-16
+        with:
+          toolchain: 1.99.1
+          components: clippy
+      - name: Clippy
+        shell: bash
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        shell: bash
+        run: cargo test --locked --all-targets
+      - name: Release build, run once
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release
+          ./target/release/transclip.exe --version
+      - name: Inno Setup 6.7.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --version 6.7.1 --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: The setup wizard builds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DAppVersion=$version" "/DExe=$PWD\target\release\transclip.exe" "/O$env:RUNNER_TEMP\setup" packaging\windows\transclip.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
