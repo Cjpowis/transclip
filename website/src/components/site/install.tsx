@@ -220,13 +220,8 @@ function WindowsSteps() {
           </li>
           <li className="flex gap-2">
             <Dot />
-            <span>
-              Keep yt-dlp up to date with{" "}
-              <span className="whitespace-nowrap">
-                <InlineCode>yt-dlp -U</InlineCode>.
-              </span>{" "}
-              Transclip says when it's time.
-            </span>
+            To keep yt-dlp up to date, run the setup again. Transclip says when
+            it's time.
           </li>
           <li className="flex gap-2">
             <Dot />

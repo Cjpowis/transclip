@@ -102,8 +102,10 @@ update it. For the most reliable results, switch to yt-dlp's latest code:
 brew reinstall --HEAD yt-dlp
 ```
 
-and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`. On
-Windows, update it with `yt-dlp -U`.
+and update it now and then with `brew upgrade --fetch-HEAD yt-dlp`.
+
+On Windows, run Transclip's setup again: it fetches the latest yt-dlp and
+leaves the rest as it is. Transclip also gives you a command that does it.
 
 ## Good to know
 
