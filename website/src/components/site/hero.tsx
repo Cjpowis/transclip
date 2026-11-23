@@ -8,7 +8,7 @@ import { RecordingDemo } from "./recording-demo"
 
 export function Header() {
   return (
-    <header className="sticky top-0 z-40 border-b border-line/60 bg-paper/85 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-line/60 bg-paper">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
         <a
           href="#top"
