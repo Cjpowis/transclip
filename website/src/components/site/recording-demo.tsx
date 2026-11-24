@@ -143,7 +143,7 @@ function Stage({ rec, still }: { rec: Recording; still: boolean }) {
         ref={stage}
         className="relative rounded-[2rem] bg-apricot p-3 sm:rounded-[2.75rem] sm:p-6 lg:p-9"
       >
-        <div className="grid items-center gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:gap-0">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-center gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:gap-0">
           <div className="relative z-0 overflow-hidden rounded-2xl bg-term shadow-[0_2px_0_rgb(255_255_255/0.06)_inset,0_30px_60px_-28px_rgb(42_28_21/0.65),0_12px_24px_-16px_rgb(42_28_21/0.5)] sm:rounded-[1.35rem]">
             <div className="flex h-10 items-center gap-2 bg-term-bar px-4">
               <span className="size-3 rounded-full bg-[#ff6259]" />

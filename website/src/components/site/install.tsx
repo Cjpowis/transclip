@@ -32,7 +32,7 @@ export function Install() {
         and it does the rest.
       </SectionHeading>
 
-      <ol className="mx-auto mt-14 grid max-w-6xl gap-5 lg:grid-cols-3">
+      <ol className="mx-auto mt-14 grid max-w-6xl grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-3">
         <Step number={1} title="Open Terminal">
           <SpotlightArt />
           <p>
