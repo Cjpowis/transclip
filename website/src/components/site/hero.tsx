@@ -60,7 +60,7 @@ export function Hero() {
   return (
     <section
       id="top"
-      className="relative overflow-hidden px-5 pt-10 pb-20 sm:px-8 sm:pt-14 lg:pb-28"
+      className="relative scroll-mt-20 overflow-hidden px-5 pt-10 pb-20 sm:px-8 sm:pt-14 lg:pb-28"
     >
       {/* One soft wash of colour behind the headline; nothing else. */}
       <div
